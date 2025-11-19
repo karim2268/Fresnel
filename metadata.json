@@ -1,0 +1,5 @@
+{
+  "name": "Simulateur RLC & Fresnel",
+  "description": "Simulation interactive d'un circuit RLC série avec visualisation temporelle et vectorielle (Fresnel). Comprend un assistant IA pour expliquer les phénomènes physiques.",
+  "requestFramePermissions": []
+}
