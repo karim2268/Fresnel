@@ -1,15 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CircuitState, CircuitParams } from '../types';
-import { Share2, Check, Link, Info } from 'lucide-react';
+import { Share2, Check, Info, Wand2 } from 'lucide-react';
 
 interface FresnelDiagramProps {
   state: CircuitState;
   params: CircuitParams;
 }
 
-const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
+// Hook personnalisé pour interpoler l'état du circuit et créer une animation fluide
+const useSmoothCircuitState = (targetState: CircuitState, duration: number = 400) => {
+  const [displayState, setDisplayState] = useState(targetState);
+  
+  // On garde une référence à l'état de départ de l'animation
+  const startStateRef = useRef(targetState);
+  const startTimeRef = useRef<number | null>(null);
+  const frameRef = useRef<number>(0);
+
+  useEffect(() => {
+    // Au changement de cible (targetState), on capture la position actuelle comme point de départ
+    startStateRef.current = displayState; 
+    startTimeRef.current = null;
+    
+    const animate = (time: number) => {
+      if (startTimeRef.current === null) startTimeRef.current = time;
+      const elapsed = time - startTimeRef.current;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing Cubic-Out pour un mouvement naturel
+      const ease = 1 - Math.pow(1 - progress, 3);
+
+      const nextState = { ...targetState };
+      
+      // Interpolation de toutes les valeurs numériques
+      (Object.keys(targetState) as (keyof CircuitState)[]).forEach((k) => {
+         const key = k as keyof CircuitState;
+         const s = startStateRef.current[key];
+         const t = targetState[key];
+         
+         if (typeof s === 'number' && typeof t === 'number') {
+             // @ts-ignore
+             nextState[key] = s + (t - s) * ease;
+         }
+      });
+
+      setDisplayState(nextState);
+
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    frameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [targetState]); // Se déclenche quand les props changent
+
+  return displayState;
+};
+
+const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state: targetState, params }) => {
+  // Utilisation de l'état animé pour le rendu
+  const state = useSmoothCircuitState(targetState);
+
   const [copied, setCopied] = useState(false);
   const [showPhiInfo, setShowPhiInfo] = useState(false);
+  const [isExpertMode, setIsExpertMode] = useState(false);
 
   // Dimensions du SVG
   const width = 500;
@@ -21,7 +75,10 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
   const voltsWidth = state.UR_max + state.Ur_max;
   
   // Hauteur : Le dessin s'étend de +UL (vers le haut) à -(UC - UL) (vers le bas si UC > UL)
-  const voltsHeight = Math.max(state.UL_max, state.UC_max);
+  // En mode expert, on veut aussi voir les vecteurs unitaires depuis l'origine, donc on prend le max absolu
+  const voltsHeight = isExpertMode 
+    ? Math.max(state.UL_max, state.UC_max) * 1.2 // Un peu plus d'espace pour le mode expert
+    : Math.max(state.UL_max, state.UC_max);
 
   // --- 2. Calcul de l'échelle (pixels par Volt) ---
   const safeVoltsWidth = Math.max(voltsWidth, 0.1);
@@ -45,10 +102,16 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
   // Centrage Vertical
   const pxAboveAxis = state.UL_max * scale;
   const pxBelowAxis = Math.max(0, state.UC_max - state.UL_max) * scale;
-  const totalDrawHeight = pxAboveAxis + pxBelowAxis;
+  
+  // Ajustement du centrage si mode expert (car on dessine aussi UC depuis l'origine vers le bas)
+  const expertPxBelow = state.UC_max * scale;
+  
+  const totalDrawHeight = isExpertMode 
+    ? Math.max(pxAboveAxis, state.UL_max * scale) + Math.max(pxBelowAxis, expertPxBelow)
+    : pxAboveAxis + pxBelowAxis;
 
   const yTop = (height - totalDrawHeight) / 2;
-  const y0 = yTop + pxAboveAxis;
+  const y0 = yTop + (isExpertMode ? Math.max(pxAboveAxis, state.UL_max * scale) : pxAboveAxis);
 
   // --- 4. Coordonnées des points du polygone de Fresnel ---
   const xA = x0 + state.UR_max * scale;
@@ -84,7 +147,7 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
     });
   };
 
-  const Arrow = ({ x1, y1, x2, y2, color, width=2, dashed=false, endArrow=true }: any) => {
+  const Arrow = ({ x1, y1, x2, y2, color, width=2, dashed=false, endArrow=true, opacity=1 }: any) => {
     const headLen = 10;
     const angle = Math.atan2(y2 - y1, x2 - x1);
     const length = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
@@ -92,7 +155,7 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
     if (length < 1) return null;
 
     return (
-      <g>
+      <g opacity={opacity}>
         <line 
           x1={x1} y1={y1} x2={x2} y2={y2} 
           stroke={color} 
@@ -110,10 +173,10 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
     );
   };
 
-  const Label = ({ x, y, text, color, anchor="middle", bg=true }: any) => (
+  const Label = ({ x, y, text, color, anchor="middle", bg=true, fontSize="12" }: any) => (
     <g style={{ pointerEvents: 'none' }}>
       {bg && <rect x={x - 24} y={y - 10} width="48" height="20" fill="rgba(255,255,255,0.85)" rx="4" />}
-      <text x={x} y={y} fill={color} fontSize="12" fontWeight="bold" textAnchor={anchor} alignmentBaseline="middle">{text}</text>
+      <text x={x} y={y} fill={color} fontSize={fontSize} fontWeight="bold" textAnchor={anchor} alignmentBaseline="middle">{text}</text>
     </g>
   );
 
@@ -126,7 +189,7 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
             Construction de Fresnel
          </h3>
          <div className="flex items-center gap-2">
-            <span className={`text-xs font-bold uppercase px-2 py-1 rounded border ${
+            <span className={`hidden sm:inline-block text-xs font-bold uppercase px-2 py-1 rounded border ${
               state.type === 'Inductif' ? 'text-blue-600 border-blue-200 bg-blue-50' :
               state.type === 'Capacitif' ? 'text-green-600 border-green-200 bg-green-50' :
               'text-purple-600 border-purple-200 bg-purple-50'
@@ -134,13 +197,25 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
               {state.type === 'Résonance' ? 'Résistif' : state.type}
             </span>
             
+            <button
+              onClick={() => setIsExpertMode(!isExpertMode)}
+              className={`flex items-center justify-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors border ${
+                isExpertMode 
+                  ? 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-700' 
+                  : 'bg-slate-100 text-slate-600 border-transparent hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300'
+              }`}
+              title="Afficher les vecteurs complexes depuis l'origine"
+            >
+              <Wand2 size={14} />
+              <span className="hidden sm:inline">Expert</span>
+            </button>
+
             <button 
               onClick={handleShare}
               className="flex items-center justify-center p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors relative group"
               title="Copier le lien de la simulation"
             >
               {copied ? <Check size={16} className="text-green-500" /> : <Share2 size={16} />}
-              {/* Tooltip custom */}
               {copied && (
                 <span className="absolute top-full mt-1 right-0 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
                   Lien copié !
@@ -198,28 +273,50 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
         {/* Axe horizontal de référence (I) */}
         <line x1={padding/2} y1={y0} x2={width - padding/2} y2={y0} stroke="#cbd5e1" strokeDasharray="4" />
         <text x={width - padding/2 + 5} y={y0} fill="#94a3b8" fontSize="12" alignmentBaseline="middle">I (réf)</text>
+        <text x={width/2} y={y0 + height/2 - 10} fill="#94a3b8" fontSize="10" textAnchor="middle" opacity={0.5}>Imaginaire</text>
+        <text x={width - 10} y={y0 - 10} fill="#94a3b8" fontSize="10" textAnchor="end" opacity={0.5}>Réel</text>
 
-        {/* 1. Vecteur UR (Résistance R) */}
+        {/* MODE EXPERT : Vecteurs depuis l'origine (Complexes indépendants) */}
+        {isExpertMode && (
+          <g>
+            {/* UL pur (Vertical haut) */}
+             <Arrow x1={x0} y1={y0} x2={x0} y2={y0 - state.UL_max * scale} color="#3b82f6" width={1.5} dashed={true} opacity={0.6} />
+             <Label x={x0 - 15} y={y0 - state.UL_max * scale / 2} text="j·Lω·I" color="#3b82f6" fontSize="10" anchor="end" />
+             
+             {/* UC pur (Vertical bas) */}
+             <Arrow x1={x0} y1={y0} x2={x0} y2={y0 + state.UC_max * scale} color="#10b981" width={1.5} dashed={true} opacity={0.6} />
+             <Label x={x0 - 15} y={y0 + state.UC_max * scale / 2} text="-j·I/Cω" color="#10b981" fontSize="10" anchor="end" />
+
+             {/* UR pur (Horizontal droite) */}
+             {/* On le décale un tout petit peu vers le bas pour ne pas surcharger le vecteur principal */}
+             <Arrow x1={x0} y1={y0+2} x2={x0 + state.UR_max * scale} y2={y0+2} color="#ef4444" width={1.5} dashed={true} opacity={0.5} />
+             
+             {/* Ur pur (Horizontal droite, décalé) */}
+             <Arrow x1={x0} y1={y0+4} x2={x0 + state.Ur_max * scale} y2={y0+4} color="#f97316" width={1.5} dashed={true} opacity={0.5} />
+          </g>
+        )}
+
+        {/* 1. Vecteur UR (Résistance R) - Partie du polygone */}
         <Arrow x1={x0} y1={y0} x2={xA} y2={yA} color="#ef4444" width={3} />
         {state.UR_max * scale > MIN_PX_VISIBLE && (
            <Label x={(x0 + xA)/2} y={y0 + 18} text="UR" color="#ef4444" />
         )}
 
-        {/* 2. Vecteur Ur (Résistance interne bobine r) */}
+        {/* 2. Vecteur Ur (Résistance interne bobine r) - Partie du polygone */}
         {state.Ur_max * scale > MIN_PX_VISIBLE && (
           <>
-            <Arrow x1={xA} y1={yA} x2={xB} y2={yB} color="#f97316" width={2} dashed={true} />
+            <Arrow x1={xA} y1={yA} x2={xB} y2={yB} color="#f97316" width={2} dashed={!isExpertMode} />
             <Label x={(xA + xB)/2} y={y0 + 18} text="Ur" color="#f97316" />
           </>
         )}
 
-        {/* 3. Vecteur UL (Inductance L) - Pointillé bleu vertical */}
-        <Arrow x1={xB} y1={yB} x2={xC} y2={yC} color="#3b82f6" width={2} dashed={true} />
+        {/* 3. Vecteur UL (Inductance L) - Partie du polygone (Vertical) */}
+        <Arrow x1={xB} y1={yB} x2={xC} y2={yC} color="#3b82f6" width={2} dashed={!isExpertMode} />
         <Label x={xB + 8} y={(yB + yC)/2} text="UL" color="#3b82f6" anchor="start" />
 
         {/* 4. Vecteur U_Bobine (Résultante r + L) - C'est l'hypoténuse Orange */}
-        <Arrow x1={xA} y1={yA} x2={xC} y2={yC} color="#f97316" width={3} />
-        {state.U_coil_max * scale > 40 && (
+        <Arrow x1={xA} y1={yA} x2={xC} y2={yC} color="#f97316" width={3} opacity={isExpertMode ? 0.4 : 1} />
+        {state.U_coil_max * scale > 40 && !isExpertMode && (
           <text 
             x={(xA + xC)/2 - 8} 
             y={(yA + yC)/2 - 8} 

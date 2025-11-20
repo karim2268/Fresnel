@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { calculateCircuitState, generateWaveforms } from './utils/physics';
 import { CircuitParams } from './types';
 import Controls from './components/Controls';
@@ -10,28 +10,54 @@ import Metrics from './components/Metrics';
 import { Activity } from 'lucide-react';
 
 const App: React.FC = () => {
-  // Function to initialize params from URL or defaults
+  // Function to initialize params from URL, localStorage or defaults
   const getInitialParams = (): CircuitParams => {
-    if (typeof window === 'undefined') return { R: 200, r: 10, L: 0.1, C: 0.000010, f: 100, U_gen: 10 };
+    const defaultParams = { R: 200, r: 10, L: 0.1, C: 0.000010, f: 100, U_gen: 10 };
+    
+    if (typeof window === 'undefined') return defaultParams;
     
     const searchParams = new URLSearchParams(window.location.search);
-    const getParam = (key: string, def: number) => {
-      const val = searchParams.get(key);
-      return val !== null && !isNaN(parseFloat(val)) ? parseFloat(val) : def;
-    };
+    
+    // Priorité 1 : Paramètres dans l'URL (lien partagé)
+    // On vérifie si au moins un paramètre clé est présent
+    if (searchParams.has('R') || searchParams.has('f') || searchParams.has('L')) {
+      const getParam = (key: string, def: number) => {
+        const val = searchParams.get(key);
+        return val !== null && !isNaN(parseFloat(val)) ? parseFloat(val) : def;
+      };
 
-    return {
-      R: getParam('R', 200),
-      r: getParam('r', 10),
-      L: getParam('L', 0.1),
-      C: getParam('C', 0.000010),
-      f: getParam('f', 100),
-      U_gen: getParam('U_gen', 10)
-    };
+      return {
+        R: getParam('R', defaultParams.R),
+        r: getParam('r', defaultParams.r),
+        L: getParam('L', defaultParams.L),
+        C: getParam('C', defaultParams.C),
+        f: getParam('f', defaultParams.f),
+        U_gen: getParam('U_gen', defaultParams.U_gen)
+      };
+    }
+
+    // Priorité 2 : LocalStorage (dernière session)
+    try {
+      const saved = localStorage.getItem('rlc_simulator_params');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...defaultParams, ...parsed };
+      }
+    } catch (e) {
+      console.warn("Impossible de lire le localStorage", e);
+    }
+
+    // Priorité 3 : Valeurs par défaut
+    return defaultParams;
   };
 
   // Initial State using the initializer function
   const [params, setParams] = useState<CircuitParams>(getInitialParams);
+
+  // Sauvegarde automatique dans le localStorage à chaque changement
+  useEffect(() => {
+    localStorage.setItem('rlc_simulator_params', JSON.stringify(params));
+  }, [params]);
 
   // Memoized Calculations
   const circuitState = useMemo(() => calculateCircuitState(params), [params]);
