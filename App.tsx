@@ -10,15 +10,28 @@ import Metrics from './components/Metrics';
 import { Activity } from 'lucide-react';
 
 const App: React.FC = () => {
-  // Initial State
-  const [params, setParams] = useState<CircuitParams>({
-    R: 200,
-    r: 10, // Internal resistance of coil default
-    L: 0.1, // 100 mH
-    C: 0.000010, // 10 uF
-    f: 100,
-    U_gen: 10
-  });
+  // Function to initialize params from URL or defaults
+  const getInitialParams = (): CircuitParams => {
+    if (typeof window === 'undefined') return { R: 200, r: 10, L: 0.1, C: 0.000010, f: 100, U_gen: 10 };
+    
+    const searchParams = new URLSearchParams(window.location.search);
+    const getParam = (key: string, def: number) => {
+      const val = searchParams.get(key);
+      return val !== null && !isNaN(parseFloat(val)) ? parseFloat(val) : def;
+    };
+
+    return {
+      R: getParam('R', 200),
+      r: getParam('r', 10),
+      L: getParam('L', 0.1),
+      C: getParam('C', 0.000010),
+      f: getParam('f', 100),
+      U_gen: getParam('U_gen', 10)
+    };
+  };
+
+  // Initial State using the initializer function
+  const [params, setParams] = useState<CircuitParams>(getInitialParams);
 
   // Memoized Calculations
   const circuitState = useMemo(() => calculateCircuitState(params), [params]);
@@ -55,7 +68,7 @@ const App: React.FC = () => {
           <Metrics state={circuitState} />
           
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <FresnelDiagram state={circuitState} />
+            <FresnelDiagram state={circuitState} params={params} />
             <WaveformChart data={waveforms} />
           </div>
 

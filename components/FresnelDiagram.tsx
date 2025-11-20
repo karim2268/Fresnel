@@ -1,11 +1,16 @@
-import React from 'react';
-import { CircuitState } from '../types';
+import React, { useState } from 'react';
+import { CircuitState, CircuitParams } from '../types';
+import { Share2, Check, Link, Info } from 'lucide-react';
 
 interface FresnelDiagramProps {
   state: CircuitState;
+  params: CircuitParams;
 }
 
-const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state }) => {
+const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state, params }) => {
+  const [copied, setCopied] = useState(false);
+  const [showPhiInfo, setShowPhiInfo] = useState(false);
+
   // Dimensions du SVG
   const width = 500;
   const height = 450;
@@ -60,6 +65,25 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state }) => {
 
   const phiDeg = state.phi * 180 / Math.PI;
 
+  const handleShare = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('R', params.R.toString());
+    url.searchParams.set('r', params.r.toString());
+    url.searchParams.set('L', params.L.toString());
+    url.searchParams.set('C', params.C.toString());
+    url.searchParams.set('f', params.f.toString());
+    url.searchParams.set('U_gen', params.U_gen.toString());
+    
+    // Mise à jour de l'URL du navigateur sans recharger
+    window.history.pushState({}, '', url);
+    
+    // Copie dans le presse-papier
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const Arrow = ({ x1, y1, x2, y2, color, width=2, dashed=false, endArrow=true }: any) => {
     const headLen = 10;
     const angle = Math.atan2(y2 - y1, x2 - x1);
@@ -98,14 +122,32 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state }) => {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-md flex flex-col items-center relative">
       <div className="flex justify-between w-full items-center mb-2">
-         <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200">Construction de Fresnel</h3>
-         <span className={`text-xs font-bold uppercase px-2 py-1 rounded border ${
-           state.type === 'Inductif' ? 'text-blue-600 border-blue-200 bg-blue-50' :
-           state.type === 'Capacitif' ? 'text-green-600 border-green-200 bg-green-50' :
-           'text-purple-600 border-purple-200 bg-purple-50'
-         }`}>
-           {state.type === 'Résonance' ? 'Résistif' : state.type}
-         </span>
+         <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+            Construction de Fresnel
+         </h3>
+         <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold uppercase px-2 py-1 rounded border ${
+              state.type === 'Inductif' ? 'text-blue-600 border-blue-200 bg-blue-50' :
+              state.type === 'Capacitif' ? 'text-green-600 border-green-200 bg-green-50' :
+              'text-purple-600 border-purple-200 bg-purple-50'
+            }`}>
+              {state.type === 'Résonance' ? 'Résistif' : state.type}
+            </span>
+            
+            <button 
+              onClick={handleShare}
+              className="flex items-center justify-center p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors relative group"
+              title="Copier le lien de la simulation"
+            >
+              {copied ? <Check size={16} className="text-green-500" /> : <Share2 size={16} />}
+              {/* Tooltip custom */}
+              {copied && (
+                <span className="absolute top-full mt-1 right-0 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
+                  Lien copié !
+                </span>
+              )}
+            </button>
+         </div>
       </div>
 
       {/* --- Zone d'affichage des valeurs de tensions --- */}
@@ -209,16 +251,72 @@ const FresnelDiagram: React.FC<FresnelDiagramProps> = ({ state }) => {
             opacity="0.8"
           />
         )}
-        {/* Valeur de Phi */}
-        <text 
-          x={x0 + 50} 
-          y={y0 - 15 * Math.sign(state.phi) + 4} 
-          fill="#8b5cf6" 
-          fontSize="14" 
-          fontWeight="bold"
+        
+        {/* Valeur de Phi - Interactive */}
+        <g 
+          onClick={(e) => { e.stopPropagation(); setShowPhiInfo(!showPhiInfo); }} 
+          className="cursor-pointer hover:opacity-80 group"
+          role="button"
+          aria-label="Afficher l'explication du déphasage"
         >
-          φ={phiDeg.toFixed(0)}°
-        </text>
+          <text 
+            x={x0 + 50} 
+            y={y0 - 15 * Math.sign(state.phi) + 4} 
+            fill="#8b5cf6" 
+            fontSize="14" 
+            fontWeight="bold"
+            style={{ textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+          >
+            φ={phiDeg.toFixed(0)}°
+          </text>
+          {/* Zone de clic étendue invisible */}
+          <rect 
+            x={x0 + 40} 
+            y={y0 - 15 * Math.sign(state.phi) - 10} 
+            width="70" 
+            height="30" 
+            fill="transparent" 
+          />
+          
+          {/* Indicateur visuel (icone info) qui apparait au survol si non affiché */}
+          {!showPhiInfo && (
+            <g transform={`translate(${x0 + 105}, ${y0 - 15 * Math.sign(state.phi)})`} className="opacity-0 group-hover:opacity-100 transition-opacity">
+               <circle r="8" fill="#8b5cf6" opacity="0.2" />
+               <text textAnchor="middle" dy="3" fill="#8b5cf6" fontSize="10" fontWeight="bold">?</text>
+            </g>
+          )}
+        </g>
+
+        {/* Infobulle Explicative (HTML dans SVG) */}
+        {showPhiInfo && (
+          <foreignObject x={x0 + 80} y={y0 - 80} width="240" height="140" style={{overflow: 'visible'}}>
+            <div xmlns="http://www.w3.org/1999/xhtml" className="bg-slate-900/95 backdrop-blur text-slate-50 text-xs p-3 rounded-lg shadow-xl border border-slate-600 z-50 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-start mb-2 border-b border-slate-700 pb-1">
+                 <strong className="text-indigo-300 flex items-center gap-1">
+                   <Info size={12} /> Déphasage (φ)
+                 </strong>
+                 <button onClick={(e) => {e.stopPropagation(); setShowPhiInfo(false)}} className="text-slate-400 hover:text-white p-0.5 rounded hover:bg-slate-700 transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                 </button>
+              </div>
+              <p className="mb-2 leading-relaxed opacity-90">C'est l'écart angulaire entre la tension totale et le courant.</p>
+              <ul className="space-y-1.5 text-slate-300 font-mono text-[11px]">
+                <li className="flex items-center gap-2">
+                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                   <span>φ &gt; 0 : Inductif (U en avance)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                   <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                   <span>φ &lt; 0 : Capacitif (U en retard)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                   <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                   <span>φ = 0 : Résonance (En phase)</span>
+                </li>
+              </ul>
+            </div>
+          </foreignObject>
+        )}
 
         <line x1={xB} y1={y0} x2={xB} y2={yC} stroke="#94a3b8" strokeDasharray="2,2" opacity="0.3" />
         <line x1={x0} y1={yD} x2={xD} y2={yD} stroke="#94a3b8" strokeDasharray="2,2" opacity="0.3" />
